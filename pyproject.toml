@@ -1,0 +1,24 @@
+[project]
+name = "stm"
+version = "0.1.0"
+description = "Converts a codebase to a Markdown file for LLM context."
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "Blas Isaias Fernández", email = "blasferna@gmail.com" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Text Processing :: Markup :: Markdown",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+]
+dependencies = []
+
+
+
+[project.scripts]
+stm = "main:main"
