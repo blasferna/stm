@@ -264,6 +264,15 @@ def main():
         help="Disable .gitignore file processing."
     )
     parser.add_argument(
+        '--ignore',
+        nargs='*',
+        default=[],
+        help="List of files or directories to explicitly ignore. Supports glob patterns "
+             "(e.g., '*.log', 'build/', 'src/generated/**'). Paths are processed relative to "
+             "the current working directory or can be absolute. Explicitly ignored items take "
+             "precedence over other inclusion rules."
+    )
+    parser.add_argument(
         '--verbose', '-v',
         action='store_true',
         help="Print verbose output, like skipped files."
@@ -274,6 +283,33 @@ def main():
     project_root_abs = os.path.abspath(args.project_root)
     if args.verbose:
         print(f"Project root set to: {project_root_abs}", file=sys.stderr)
+
+    # --- Prepare explicit ignore list ---
+    explicitly_ignored_paths_abs = set()
+    if args.ignore:
+        if args.verbose:
+            print(f"Processing --ignore patterns: {args.ignore}", file=sys.stderr)
+        for pattern in args.ignore:
+            try:
+                # Glob patterns are relative to CWD by default.
+                # If pattern is already absolute, glob handles it correctly.
+                expanded_paths = glob.glob(pattern, recursive=True)
+
+                for p in expanded_paths:
+                    explicitly_ignored_paths_abs.add(os.path.abspath(p))
+            except Exception as e: # Catch potential errors from malformed glob patterns
+                print(f"Warning: Could not process --ignore pattern '{pattern}': {e}", file=sys.stderr)
+        
+        if args.verbose:
+            if explicitly_ignored_paths_abs:
+                # To avoid printing too many items if a glob expands massively:
+                if len(explicitly_ignored_paths_abs) > 10:
+                     print(f"  Will explicitly ignore {len(explicitly_ignored_paths_abs)} resolved files/directories based on --ignore patterns.", file=sys.stderr)
+                else:
+                     print(f"  Resolved explicit ignore paths (relative to project root or absolute if outside): {[os.path.relpath(p, project_root_abs) if p.startswith(project_root_abs) else p for p in sorted(list(explicitly_ignored_paths_abs))]}", file=sys.stderr)
+            else:
+                print(f"  No files or directories matched by --ignore patterns: {args.ignore}", file=sys.stderr)
+
 
     # --- 1. Collect all files based on input paths and globs ---
     candidate_files_abs = set()
@@ -344,16 +380,33 @@ def main():
         # Normalize path separators for cross-platform consistency in output
         filepath_relative_std = filepath_relative.replace(os.sep, '/')
 
+        # Explicit ignore check (takes precedence)
+        is_explicitly_ignored = False
+        if filepath_abs in explicitly_ignored_paths_abs: # File itself is explicitly ignored
+            is_explicitly_ignored = True
+        else: # Check if file is within an explicitly ignored directory
+            for ignored_item_abs in explicitly_ignored_paths_abs:
+                if os.path.isdir(ignored_item_abs):
+                    # os.path.join ensures correct trailing separator for directory path
+                    if filepath_abs.startswith(os.path.join(ignored_item_abs, '')):
+                        is_explicitly_ignored = True
+                        break
+        
+        if is_explicitly_ignored:
+            if args.verbose:
+                print(f"Skipping explicitly ignored file (by --ignore): {filepath_relative_std}", file=sys.stderr)
+            continue
+
         # Basic binary file check by extension
         if os.path.splitext(filepath_abs)[1].lower() in BINARY_EXTENSIONS:
             if args.verbose:
                 print(f"Skipping likely binary file (by extension): {filepath_relative_std}", file=sys.stderr)
             continue
 
-        # .gitignore check
+        # .gitignore check (includes ALWAYS_IGNORE_FILENAMES)
         if not args.no_gitignore and is_file_ignored(filepath_abs, project_root_abs, gitignore_patterns_by_dir):
             if args.verbose:
-                print(f"Skipping ignored file (by .gitignore): {filepath_relative_std}", file=sys.stderr)
+                print(f"Skipping ignored file (by .gitignore or always_ignore): {filepath_relative_std}", file=sys.stderr)
             continue
         
         try:
